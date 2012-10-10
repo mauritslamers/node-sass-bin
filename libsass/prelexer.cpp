@@ -83,10 +83,10 @@ namespace Sass {
     
     // Match interpolant schemas
     const char* identifier_schema(const char* src) {
-      // follows this pattern: (x*ix*)+
-      return one_plus< sequence< zero_plus< identifier >,
+      // follows this pattern: (x*ix*)+ ... well, not quite
+      return one_plus< sequence< zero_plus< alternatives< identifier, exactly<'-'> > >,
                                  interpolant,
-                                 zero_plus< identifier > > >(src);
+                                 zero_plus< alternatives< identifier, number, exactly<'-'> > > > >(src);
     }
     const char* value_schema(const char* src) {
       // follows this pattern: ([xyz]*i[xyz]*)+
@@ -103,9 +103,21 @@ namespace Sass {
     const char* import(const char* src) {
       return exactly<import_kwd>(src);
     }
+    extern const char media_kwd[] = "@media";
+    const char* media(const char* src) {
+      return exactly<media_kwd>(src);
+    }
     extern const char mixin_kwd[] = "@mixin";
     const char* mixin(const char* src) {
       return exactly<mixin_kwd>(src);
+    }
+    extern const char function_kwd[] = "@function";
+    const char* function(const char* src) {
+      return exactly<function_kwd>(src);
+    }
+    extern const char return_kwd[] = "@return";
+    const char* return_directive(const char* src) {
+      return exactly<return_kwd>(src);
     }
     extern const char include_kwd[] = "@include";
     const char* include(const char* src) {
@@ -152,6 +164,11 @@ namespace Sass {
     const char* each_directive(const char* src) {
       return exactly<each_kwd>(src);
     }
+    extern const char in_kwd[] = "in";
+    const char* in(const char* src) {
+      return exactly<in_kwd>(src);
+    }
+
     extern const char while_kwd[] = "@while";
     const char* while_directive(const char* src) {
       return exactly<while_kwd>(src);
@@ -162,6 +179,16 @@ namespace Sass {
                                      exactly<'-'>,
                                      exactly<'_'> > >(src);
     }
+
+    extern const char warn_kwd[] = "@warn";
+    const char* warn(const char* src) {
+      return exactly<warn_kwd>(src);
+    }
+
+    const char* directive(const char* src) {
+      return sequence< exactly<'@'>, identifier >(src);
+    }
+
     // Match CSS type selectors
     const char* namespace_prefix(const char* src) {
       return sequence< optional< alternatives< identifier, exactly<'*'> > >,
@@ -214,7 +241,7 @@ namespace Sass {
     extern const char px_kwd[] = "px";
     extern const char cm_kwd[] = "cm";
     extern const char mm_kwd[] = "mm";
-    extern const char in_kwd[] = "in";
+    // extern const char in_kwd[] = "in";
     extern const char pt_kwd[] = "pt";
     extern const char pc_kwd[] = "pc";
     extern const char deg_kwd[] = "deg";
@@ -251,6 +278,11 @@ namespace Sass {
                        optional<spaces>,
                        exactly<')'> >(src);
     }
+    // Match SCSS image-url function
+    extern const char image_url_kwd[] = "image-url(";
+    const char* image_url_prefix(const char* src) {
+      return exactly<image_url_kwd>(src);
+    }
     // Match CSS "!important" keyword.
     extern const char important_kwd[] = "important";
     const char* important(const char* src) {
@@ -258,13 +290,20 @@ namespace Sass {
                        spaces_and_comments,
                        exactly<important_kwd> >(src);
     }
+    // Match Sass "!default" keyword.
+    extern const char default_kwd[] = "default";
+    const char* default_flag(const char* src) {
+      return sequence< exactly<'!'>,
+                       spaces_and_comments,
+                       exactly<default_kwd> >(src);
+    }
     // Match CSS pseudo-class/element prefixes.
     const char* pseudo_prefix(const char* src) {
       return sequence< exactly<':'>, optional< exactly<':'> > >(src);
     }
     // Match CSS function call openers.
     const char* functional(const char* src) {
-      return sequence< identifier, exactly<'('> >(src);
+      return sequence< alternatives< identifier_schema, identifier >, exactly<'('> >(src);
     }
     // Match the CSS negation pseudo-class.
     extern const char pseudo_not_chars[] = ":not(";

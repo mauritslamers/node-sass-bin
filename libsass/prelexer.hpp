@@ -308,7 +308,10 @@ namespace Sass {
     // Match CSS '@' keywords.
     const char* at_keyword(const char* src);
     const char* import(const char* src);
+    const char* media(const char* src);
     const char* mixin(const char* src);
+    const char* function(const char* src);
+    const char* return_directive(const char* src);
     const char* include(const char* src);
     const char* extend(const char* src);
 
@@ -322,8 +325,13 @@ namespace Sass {
     const char* through(const char* src);
 
     const char* each_directive(const char* src);
+    const char* in(const char* src);
 
     const char* while_directive(const char* src);
+
+    const char* warn(const char* src);
+
+    const char* directive(const char* src);
 
     // Match CSS type selectors
     const char* namespace_prefix(const char* src);
@@ -346,8 +354,12 @@ namespace Sass {
     // Match CSS uri specifiers.
     const char* uri_prefix(const char* src);
     const char* uri(const char* src);
+    // Match SCSS image-url function.
+    const char* image_url_prefix(const char* src);
     // Match CSS "!important" keyword.
     const char* important(const char* src);
+    // Match Sass "!default" keyword.
+    const char* default_flag(const char* src);
     // Match CSS pseudo-class/element prefixes
     const char* pseudo_prefix(const char* src);
     // Match CSS function call openers.
@@ -406,7 +418,6 @@ namespace Sass {
         if (mx(beg)) return beg;
         ++beg;
       }
-
       return 0;
     }
     template <char c>

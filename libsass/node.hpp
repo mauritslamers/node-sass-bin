@@ -74,6 +74,7 @@ namespace Sass {
       root,
       ruleset,
       propset,
+      media_query,
 
       selector_group,
       selector,
@@ -89,6 +90,9 @@ namespace Sass {
       functional_pseudo,
       attribute_selector,
       selector_schema,
+
+      media_expression_group,
+      media_expression,
 
       block,
       rule,
@@ -124,12 +128,14 @@ namespace Sass {
       value,
       identifier,
       uri,
+      image_url,
       textual_percentage,
       textual_dimension,
       textual_number,
       textual_hex,
       color_name,
       string_constant,
+      concatenation,
       number,
       numeric_percentage,
       numeric_dimension,
@@ -139,10 +145,12 @@ namespace Sass {
 
       value_schema,
       string_schema,
+      identifier_schema,
 
       css_import,
       function_call,
       mixin,
+      function,
       parameters,
       expansion,
       arguments,
@@ -152,6 +160,13 @@ namespace Sass {
       for_to_directive,
       each_directive,
       while_directive,
+      return_directive,
+      content_directive,
+
+      warning,
+
+      block_directive,
+      blockless_directive,
 
       variable,
       assignment
@@ -168,8 +183,11 @@ namespace Sass {
     bool has_backref() const;
     bool from_variable() const;
     bool& should_eval() const;
-    bool& is_unquoted() const;
+    bool& is_unquoted() const; // for strings
+    bool& is_quoted() const;   // for identifiers
     bool is_numeric() const;
+    bool is_guarded() const;
+    bool& has_been_extended() const;
 
     string& path() const;
     size_t line() const;
@@ -196,9 +214,12 @@ namespace Sass {
     Token  token() const;
     Token  unit() const;
 
-    bool is_null_ptr() const;
+    bool is_null_ptr() const { return !ip_; }
+    bool is(Node n) const { return ip_ == n.ip_; }
 
     void flatten();
+
+    string unquote() const;
     
     bool operator==(Node rhs) const;
     bool operator!=(Node rhs) const;
@@ -207,8 +228,8 @@ namespace Sass {
     bool operator>(Node rhs) const;
     bool operator>=(Node rhs) const;
 
-    string to_string() const;
-    void emit_nested_css(stringstream& buf, size_t depth, bool at_toplevel = false);
+    string to_string(Type inside_of = none) const;
+    void emit_nested_css(stringstream& buf, size_t depth, bool at_toplevel = false, bool in_media_query = false);
     void emit_propset(stringstream& buf, size_t depth, const string& prefix);
     void echo(stringstream& buf, size_t depth = 0);
     void emit_expanded_css(stringstream& buf, const string& prefix);
@@ -239,6 +260,8 @@ namespace Sass {
     bool from_variable;
     bool should_eval;
     bool is_unquoted;
+    bool is_quoted;
+    bool has_been_extended;
 
     Node_Impl()
     : /* value(value_t()),
@@ -253,7 +276,9 @@ namespace Sass {
       has_backref(false),
       from_variable(false),
       should_eval(false),
-      is_unquoted(false)
+      is_unquoted(false), // for strings
+      is_quoted(false),  // for identifiers -- yeah, it's hacky for now
+      has_been_extended(false)
     { }
     
     bool is_numeric()
@@ -280,20 +305,33 @@ namespace Sass {
         case Node::comment:
         case Node::css_import:
         case Node::rule:
-        case Node::propset:   has_statements = true; break;
+        case Node::propset:
+        case Node::warning:
+        case Node::block_directive:
+        case Node::blockless_directive: {
+          has_statements = true;
+        } break;
 
-        case Node::ruleset:   has_blocks     = true; break;
+        case Node::media_query:
+        case Node::ruleset: {
+          has_blocks = true;
+        } break;
 
+        case Node::block:
         case Node::if_directive:
         case Node::for_through_directive:
         case Node::for_to_directive:
         case Node::each_directive:
         case Node::while_directive:
-        case Node::expansion: has_expansions = true; break;
+        case Node::expansion: {
+          has_expansions = true;
+        } break;
 
-        case Node::backref:   has_backref    = true; break;
+        case Node::backref: {
+          has_backref = true;
+        } break;
 
-        default:                                     break;
+        default: break;
       }
       if (n.has_backref()) has_backref = true;
     }
@@ -308,9 +346,19 @@ namespace Sass {
         case Node::css_import:
         case Node::rule:
         case Node::propset:   has_statements = true; break;
+
+        case Node::media_query:
         case Node::ruleset:   has_blocks     = true; break;
+
+        case Node::if_directive:
+        case Node::for_through_directive:
+        case Node::for_to_directive:
+        case Node::each_directive:
+        case Node::while_directive:
         case Node::expansion: has_expansions = true; break;
+
         case Node::backref:   has_backref    = true; break;
+
         default:                                     break;
       }
       if (n.has_backref()) has_backref = true;
@@ -345,7 +393,10 @@ namespace Sass {
   inline bool Node::from_variable() const  { return ip_->from_variable; }
   inline bool& Node::should_eval() const   { return ip_->should_eval; }
   inline bool& Node::is_unquoted() const   { return ip_->is_unquoted; }
+  inline bool& Node::is_quoted() const     { return ip_->is_quoted; }
   inline bool Node::is_numeric() const     { return ip_->is_numeric(); }
+  inline bool Node::is_guarded() const     { return (type() == assignment) && (size() == 3); }
+  inline bool& Node::has_been_extended() const { return ip_->has_been_extended; }
   
   inline string& Node::path() const  { return ip_->path; }
   inline size_t  Node::line() const  { return ip_->line; }
@@ -386,7 +437,5 @@ namespace Sass {
   inline double Node::numeric_value() const { return ip_->numeric_value(); }
   inline Token  Node::token() const         { return ip_->value.token; }
   inline Token  Node::unit() const          { return ip_->unit(); }
-
-  inline bool Node::is_null_ptr() const { return !ip_; }
 
 }

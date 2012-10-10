@@ -5,6 +5,7 @@
 #include "error.hpp"
 #include <iostream>
 #include <sstream>
+#include <sys/stat.h>
 
 namespace Sass {
 
@@ -29,13 +30,29 @@ namespace Sass {
   Document Document::make_from_file(Context& ctx, string path)
   {
     std::FILE *f;
-    f = std::fopen(path.c_str(), "rb");
-    if (!f) throw path;
-    if (std::fseek(f, 0, SEEK_END)) throw path;
-    int status = std::ftell(f);
-    if (status < 0) throw path;
-    size_t len = status;
-    std::rewind(f);
+    const char* path_str = path.c_str();
+    struct stat st;
+    string tmp;
+    if (stat(path_str, &st) == -1 || S_ISDIR(st.st_mode)) {
+        tmp = path + ".scss";
+        path_str = tmp.c_str();
+        if (stat(path_str, &st) == -1 || S_ISDIR(st.st_mode)) {
+            const char *full_path_str = path.c_str();
+            const char *file_name_str = Prelexer::folders(full_path_str);
+            tmp = Token::make(full_path_str, file_name_str).to_string() +
+                  "_" +
+                  string(file_name_str);
+            path_str = tmp.c_str();
+            if (stat(path_str, &st) == -1 || S_ISDIR(st.st_mode)) {
+                tmp = tmp + ".scss";
+                path_str = tmp.c_str();
+                if (stat(path_str, &st) == -1 || S_ISDIR(st.st_mode))
+                    throw path;
+            }
+        }
+    }
+    f = std::fopen(path_str, "rb");
+    size_t len = st.st_size;
     char* source = new char[len + 1];
     size_t bytes_read = std::fread(source, sizeof(char), len, f);
     if (bytes_read != len) {
@@ -45,10 +62,12 @@ namespace Sass {
     source[len] = '\0';
     char* end = source + len;
     if (std::fclose(f)) throw path;
+    const char *file_name_str = Prelexer::folders(path_str);
+    string include_path(path_str, file_name_str - path_str);
 
     Document doc(ctx);
     doc.path        = path;
-    doc.line = 1;
+    doc.line        = 1;
     doc.root        = ctx.new_Node(Node::root, path, 1, 0);
     doc.lexed       = Token::make();
     doc.own_source  = true;
@@ -56,6 +75,9 @@ namespace Sass {
     doc.end         = end;
     doc.position    = source;
     doc.context.source_refs.push_back(source);
+    if (!include_path.empty()) {
+      doc.context.include_paths.push_back(include_path);
+    }
 
     return doc;
   }
@@ -117,7 +139,22 @@ namespace Sass {
       break;
     }
     string retval(output.str());
-    if (!retval.empty()) retval.resize(retval.size()-1);
+    // trim trailing whitespace
+    if (!retval.empty()) {
+      size_t newlines = 0;
+      size_t i = retval.length();
+      while (i--) {
+        if (retval[i] == '\n') {
+          ++newlines;
+          continue;
+        }
+        else {
+          break;
+        }
+      }
+      retval.resize(retval.length() - newlines);
+      retval += "\n";
+    }
     return retval;
   }
 }

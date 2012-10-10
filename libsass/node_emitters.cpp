@@ -15,15 +15,40 @@ using std::endl;
 
 namespace Sass {
 
-  string Node::to_string() const
+  string Node::to_string(Type inside_of) const
   {
     switch (type())
     {
-      case selector_group: { // really only needed for arg to :not
+      case selector_group:
+      case media_expression_group: { // really only needed for arg to :not
         string result(at(0).to_string());
         for (size_t i = 1, S = size(); i < S; ++i) {
           result += ", ";
           result += at(i).to_string();
+        }
+        return result;
+      } break;
+
+      case media_expression: {
+        string result;
+        if (at(0).type() == rule) {
+          result += "(";
+          result += at(0).to_string();
+          result += ")";
+        }
+        else {
+          result += at(0).to_string();
+        }
+        for (size_t i = 1, S = size(); i < S; ++i) {
+          result += " ";
+          if (at(i).type() == rule) {
+            result += "(";
+            result += at(i).to_string();
+            result += ")";
+          }
+          else {
+            result += at(i).to_string();
+          }
         }
         return result;
       } break;
@@ -84,6 +109,13 @@ namespace Sass {
         return result;
       } break;
 
+      case rule: {
+        string result(at(0).to_string(property));
+        result += ": ";
+        result += at(1).to_string();
+        return result;
+      } break;
+
       case comma_list: {
         string result(at(0).to_string());
         for (size_t i = 1, S = size(); i < S; ++i) {
@@ -108,9 +140,7 @@ namespace Sass {
       case term: {
         string result(at(0).to_string());
         for (size_t i = 1, S = size(); i < S; ++i) {
-          if (!(at(i).type() == add ||
-                // at(i).type == sub ||  // another edge case -- consider uncommenting
-                at(i).type() == mul)) {
+          if (at(i).type() != add && at(i).type() != mul) {
             result += at(i).to_string();
           }
         }
@@ -130,7 +160,6 @@ namespace Sass {
         stringstream ss;
         ss << "@import url(";
         ss << at(0).to_string();
-        // cerr << content.token.to_string() << endl;
         ss << ")";
         return ss.str();
       }
@@ -239,7 +268,8 @@ namespace Sass {
       
       case uri: {
         string result("url(");
-        result += token().to_string();
+        // result += token().to_string();
+        result += at(0).to_string();
         result += ")";
         return result;
       } break;
@@ -257,6 +287,12 @@ namespace Sass {
           else                                       return result;
         }
       } break;
+
+      case identifier: {
+        string result(token().to_string());
+        if (is_quoted()) return "\"" + result + "\"";
+        else             return result;
+      } break;
       
       case boolean: {
         if (boolean_value()) return "true";
@@ -267,9 +303,18 @@ namespace Sass {
         return "!important";
       } break;
       
-      case value_schema: {
+      case value_schema:
+      case identifier_schema: {
         string result;
-        for (size_t i = 0, S = size(); i < S; ++i) result += at(i).to_string();
+        for (size_t i = 0, S = size(); i < S; ++i) {
+          if (at(i).type() == string_constant) {
+            result += at(i).token().unquote();
+          }
+          else {
+            result += at(i).to_string(identifier_schema);
+          }
+        }
+        if (is_quoted()) result = "\"" + result + "\"";
         return result;
       } break;
       
@@ -284,7 +329,36 @@ namespace Sass {
             result += chunk;
           }
         }
+        if (is_unquoted()) result = result.substr(1, result.length() - 2);
         return result;
+      } break;
+
+      case concatenation: {
+        string result;
+        for (size_t i = 0, S = size(); i < S; ++i) {
+          result += at(i).to_string().substr(1, at(i).token().length()-2);
+        }
+        // if (inside_of == identifier_schema || inside_of == property) return result;
+        // else                                                         return "\"" + result + "\"";
+        if (!(inside_of == identifier_schema || inside_of == property) && !is_unquoted()) {
+          result = "\"" + result + "\"";
+        }
+        return result;
+      } break;
+
+      case warning: {
+        string prefix("WARNING: ");
+        string indent("         ");
+        Node contents(at(0));
+        string result(contents.to_string());
+        if (contents.type() == string_constant || contents.type() == string_schema) {
+          result = result.substr(1, result.size()-2); // unquote if it's a single string
+        }
+        // These cerrs aren't log lines! They're supposed to be here!
+        cerr << prefix << result << endl;
+        cerr << indent << "on line " << at(0).line() << " of " << at(0).path();
+        cerr << endl << endl;
+        return "";
       } break;
       
       default: {
@@ -295,16 +369,16 @@ namespace Sass {
     }
   }
 
-  void Node::emit_nested_css(stringstream& buf, size_t depth, bool at_toplevel)
+  void Node::emit_nested_css(stringstream& buf, size_t depth, bool at_toplevel, bool in_media_query)
   {
     switch (type())
     {
-      case root:
+      case root: {
         if (has_expansions()) flatten();
         for (size_t i = 0, S = size(); i < S; ++i) {
           at(i).emit_nested_css(buf, depth, true);
         }
-        break;
+      } break;
 
       case ruleset: {
         Node sel_group(at(2));
@@ -317,22 +391,71 @@ namespace Sass {
           buf << " {";
           for (size_t i = 0, S = block.size(); i < S; ++i) {
             Type stm_type = block[i].type();
-            if (stm_type == comment || stm_type == rule || stm_type == css_import || stm_type == propset) {
-              block[i].emit_nested_css(buf, depth+1);
+            if (stm_type == block_directive) buf << endl;
+            switch (stm_type)
+            {
+              case comment:
+              case rule:
+              case css_import:
+              case propset:
+              case block_directive:
+              case blockless_directive:
+              case warning: {
+                block[i].emit_nested_css(buf, depth+1);
+              } break;
+              default: break;
             }
           }
-          buf << " }" << endl;
+          buf << " }";
+          if (!in_media_query || (in_media_query && block.has_blocks())) buf << endl;
           ++depth; // if we printed content at this level, we need to indent any nested rulesets
         }
         if (block.has_blocks()) {
           for (size_t i = 0, S = block.size(); i < S; ++i) {
-            if (block[i].type() == ruleset) {
-              block[i].emit_nested_css(buf, depth);
+            if (block[i].type() == ruleset || block[i].type() == media_query) {
+              block[i].emit_nested_css(buf, depth, false, in_media_query);
             }
           }
         }
         if (block.has_statements()) --depth; // see previous comment
-        if ((depth == 0) && at_toplevel) buf << endl;
+        if ((depth == 0) && at_toplevel && !in_media_query) buf << endl;
+      } break;
+
+      case media_query: {
+        buf << string(2*depth, ' ');
+        buf << "@media " << at(0).to_string() << " {" << endl;
+        at(1).emit_nested_css(buf, depth+1, false, true);
+        buf << " }" << endl;
+      } break;
+
+      case blockless_directive: {
+        buf << endl << string(2*depth, ' ');
+        buf << to_string();
+        buf << ";";
+      } break;
+
+      case block_directive: {
+        Node header(at(0));
+        Node block(at(1));
+        if (block.has_expansions()) block.flatten();
+        buf << string(2*depth, ' ');
+        buf << header.to_string();
+        buf << " {";
+        for (size_t i = 0, S = block.size(); i < S; ++i) {
+          switch (block[i].type())
+          {
+            case ruleset:
+            case media_query:
+            case block_directive:
+              buf << endl;
+              break;
+            default:
+              break;
+          }
+          block[i].emit_nested_css(buf, depth+1, false, in_media_query);
+        }
+        buf << " }" << endl;
+        if ((depth == 0) && at_toplevel && !in_media_query) buf << endl;
       } break;
 
       case propset: {
@@ -341,8 +464,9 @@ namespace Sass {
         
       case rule: {
         buf << endl << string(2*depth, ' ');
-        at(0).emit_nested_css(buf, depth); // property
-        at(1).emit_nested_css(buf, depth); // values
+        buf << to_string();
+        // at(0).emit_nested_css(buf, depth); // property
+        // at(1).emit_nested_css(buf, depth); // values
         buf << ";";
       } break;
         
